@@ -1,6 +1,6 @@
 # demo on MUG dataset
 import sys
-sys.path.append("/workspace/code/CVPR23_LFDM")  # change this to your code directory
+sys.path.append("/home/zeta/Workbenches/Diffusion/CVPR23_LFDM")  # change this to your code directory
 import argparse
 
 import imageio
@@ -19,8 +19,8 @@ import cv2
 import matplotlib.pyplot as plt
 
 start = timeit.default_timer()
-root_dir = '/data/hfn5052/text2motion/cvpr23/demo_mug'
-GPU = "2"
+root_dir = '/home/zeta/Workbenches/Diffusion/CVPR23_LFDM/demo_mug'
+GPU = "3"
 postfix = "-j-sl-random-of-tr-rmm"
 INPUT_SIZE = 128
 N_FRAMES = 40
@@ -28,10 +28,10 @@ RANDOM_SEED = 1234
 MEAN = (0.0, 0.0, 0.0)
 cond_scale = 1.
 # downloaded the pretrained DM model and put its path here
-RESTORE_FROM = "/data/hfn5052/text2motion/videoflowdiff_mug/snapshots-j-sl-random-of-tr-rmm/flowdiff_0005_S111600.pth"
+RESTORE_FROM = "/home/zeta/Workbenches/Diffusion/CVPR23_LFDM/weights/DM_MUG.pth"
 # downloaded the pretrained LFAE model and put its path here
-AE_RESTORE_FROM = "/data/hfn5052/text2motion/RegionMM/log-mug/mug128/snapshots/RegionMM_0100_S046500.pth"
-config_path = "/workspace/code/CVPR23_LFDM/config/mug128.yaml"
+AE_RESTORE_FROM = "/home/zeta/Workbenches/Diffusion/CVPR23_LFDM/weights/LFAE_MUG.pth"
+config_path = "/home/zeta/Workbenches/Diffusion/CVPR23_LFDM/config/mug128.yaml"
 CKPT_DIR = os.path.join(root_dir, "demo"+postfix)
 os.makedirs(CKPT_DIR, exist_ok=True)
 print(root_dir)
@@ -107,7 +107,7 @@ def main():
     exp_list = ['anger', 'disgust', 'fear', 'happiness',
                 'neutral', 'sadness', 'surprise']
 
-    ref_img_path = "/workspace/code/CVPR23_LFDM/demo/mug_examples/img_0000.jpg"
+    ref_img_path = "/home/zeta/Workbenches/Diffusion/CVPR23_LFDM/demo/mug_examples/img_0000.jpg"
     print("input image:", ref_img_path)
     ref_img_name = os.path.basename(ref_img_path)[:-4]
     ref_img_npy = imageio.v2.imread(ref_img_path)[:, :, :3]
