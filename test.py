@@ -25,9 +25,6 @@ def convert_videos(videos):
     
     return converted_videos
 
-# videos = np.load("data_108.npy")
-# np.save("data_40.npy", convert_videos(videos))
-
 videos = np.load("data_108.npy")
 new_im_arr_list = []
 for nf in range(40):

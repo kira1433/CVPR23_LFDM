@@ -88,4 +88,4 @@ def bert_embed(
     # denom = mask.sum(dim=1)
     # masked_mean = numer / (denom + eps)
     # return masked_mean
-    return torch.Tensor(0,)
+    return torch.Tensor(1,)
