@@ -203,7 +203,7 @@ class ReconstructionModel(torch.nn.Module):
                 affine_transformed = torch.matmul(transform.jacobian(transformed_region_params['shift']),
                                                   transformed_region_params['affine'])
 
-                normed_driving = torch.inverse(driving_region_params['affine'])
+                normed_driving = torch.inverse(driving_region_params['affine']+ torch.eye(2,device = affine_transformed.device) * 1e-6)
                 normed_transformed = affine_transformed
                 value = torch.matmul(normed_driving, normed_transformed)
                 eye = torch.eye(2).view(1, 1, 2, 2).type(value.type())

@@ -69,7 +69,7 @@ class PixelwiseFlowPredictor(nn.Module):
         identity_grid = identity_grid.view(1, 1, h, w, 2)
         coordinate_grid = identity_grid - driving_region_params['shift'].view(bs, self.num_regions, 1, 1, 2)
         if 'affine' in driving_region_params:
-            affine = torch.matmul(source_region_params['affine'], torch.inverse(driving_region_params['affine']))
+            affine = torch.matmul(source_region_params['affine'], torch.inverse(driving_region_params['affine']+ torch.eye(2, device=source_image.device) * 1e-6))
             if self.revert_axis_swap:
                 affine = affine * torch.sign(affine[:, :, 0:1, 0:1])
             affine = affine.unsqueeze(-3).unsqueeze(-3)

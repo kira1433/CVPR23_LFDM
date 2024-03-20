@@ -16,14 +16,15 @@ from datasets_mug import MUG
 import sys
 import random
 from DM.modules.video_flow_diffusion_model import FlowDiffusion
+from DM.modules.dataset import CustomVideoDataset 
 from torch.optim.lr_scheduler import MultiStepLR
 
 start = timeit.default_timer()
 BATCH_SIZE = 5
 MAX_EPOCH = 1200
 epoch_milestones = [800, 1000]
-root_dir = '/data/hfn5052/text2motion/videoflowdiff_mug'
-data_dir = "/data/hfn5052/text2motion/MUG"
+root_dir = '/home/zeta/Workbenches/Diffusion/CVPR23_LFDM/demo_mug'
+data_dir ='/home/zeta/Workbenches/Diffusion/'
 GPU = "1"
 postfix = "-j-sl-vr-of-tr-rmm"
 joint = "joint" in postfix or "-j" in postfix  # allow joint training with unconditional model
@@ -40,9 +41,11 @@ else:
     null_cond_prob = 0.0
 split_train_test = "train" in postfix or "-tr" in postfix
 use_residual_flow = "-rf" in postfix
-config_pth = "/workspace/code/CVPR23_LFDM/config/mug128.yaml"
+config_pth = "/home/zeta/Workbenches/Diffusion/CVPR23_LFDM/config/mug128.yaml"
 # put your pretrained LFAE here
-AE_RESTORE_FROM = "/data/hfn5052/text2motion/RegionMM/log-mug/mug128/snapshots/RegionMM_0100_S046500.pth"
+AE_RESTORE_FROM = "/home/zeta/Workbenches/Diffusion/CVPR23_LFDM/weights/LFAE_MUG.pth"
+# downloaded the pretrained DM model and put its path here
+ESTORE_FROM = "/home/zeta/Workbenches/Diffusion/CVPR23_LFDM/weights/DM_MUG.pth"
 INPUT_SIZE = 128
 N_FRAMES = 40
 LEARNING_RATE = 2e-4
@@ -185,6 +188,7 @@ def main():
         print("NO checkpoint found!")
 
     setup_seed(args.random_seed)
+    dataset = CustomVideoDataset(npy_path=osp.join(data_dir, "data_108.npy"))
     trainloader = data.DataLoader(MUG(data_dir=data_dir,
                                       image_size=INPUT_SIZE,
                                       num_frames=N_FRAMES,

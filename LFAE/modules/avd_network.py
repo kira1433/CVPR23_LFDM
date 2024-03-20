@@ -76,7 +76,7 @@ class AVDNetwork(nn.Module):
 
     def forward(self, x_id, x_pose, alpha=0.2):
         if self.revert_axis_swap:
-            affine = torch.matmul(x_id['affine'], torch.inverse(x_pose['affine']))
+            affine = torch.matmul(x_id['affine'], torch.inverse(x_pose['affine'] + torch.eye(2,device=x_id.device) * 1e-6))
             sign = torch.sign(affine[:, :, 0:1, 0:1])
             x_id = {'affine': x_id['affine'] * sign, 'shift': x_id['shift']}
 

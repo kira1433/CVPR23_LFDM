@@ -41,7 +41,7 @@ def region2gaussian(center, covar, spatial_size):
         out = torch.exp(-0.5 * (mean_sub ** 2).sum(-1) / covar)
     else:
         shape = mean.shape[:number_of_leading_dimensions] + (1, 1, 2, 2)
-        covar_inverse = torch.inverse(covar).view(*shape)
+        covar_inverse = torch.inverse(covar+ torch.eye(2,device=covar.device) * 1e-6).view(*shape)
         under_exp = torch.matmul(torch.matmul(mean_sub.unsqueeze(-2), covar_inverse), mean_sub.unsqueeze(-1))
         out = torch.exp(-0.5 * under_exp.sum(dim=(-1, -2)))
 
