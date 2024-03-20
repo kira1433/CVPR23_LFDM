@@ -18,7 +18,7 @@ from datasets_mug import MUG
 
 import random
 from DM.modules.video_flow_diffusion_model import FlowDiffusion
-from DM.modules.dataset import CustomVideoDataset 
+from utils.dataset import CustomVideoDataset 
 from torch.optim.lr_scheduler import MultiStepLR
 
 start = timeit.default_timer()
@@ -26,7 +26,6 @@ BATCH_SIZE = 5
 MAX_EPOCH = 1
 epoch_milestones = [800, 1000]
 root_dir = '/home/zeta/Workbenches/Diffusion/CVPR23_LFDM/mug'
-data_dir ='/home/zeta/Workbenches/Diffusion/'
 GPU = "1"
 postfix = "-j-sl-vr-of-tr-rmm"
 joint = "joint" in postfix or "-j" in postfix  # allow joint training with unconditional model
@@ -187,7 +186,7 @@ def main():
         print("NO checkpoint found!")
 
     setup_seed(args.random_seed)
-    dataset = CustomVideoDataset(npy_path=osp.join(data_dir, "data_40.npy"))
+    dataset = CustomVideoDataset()
     dataloader = data.DataLoader(dataset,
                                   batch_size=args.batch_size,
                                   shuffle=True, num_workers=args.num_workers,
@@ -207,12 +206,7 @@ def main():
             actual_step = int(args.start_step + cnt)
             data_time.update(timeit.default_timer() - iter_end)
 
-            real_vids = batch
-            # use first frame of each video as reference frame
-            ref_imgs = real_vids[:, :, 0, :, :].clone().detach()
-            #shuffle real_imgs along batch dimension
-            idx = torch.randperm(ref_imgs.size(0))
-            ref_imgs = ref_imgs[idx]
+            real_vids, ref_imgs = batch
 
             model.set_train_input(ref_img=ref_imgs, real_vid=real_vids, ref_text="")
             model.forward()

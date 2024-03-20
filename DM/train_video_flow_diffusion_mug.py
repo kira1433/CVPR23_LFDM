@@ -16,7 +16,7 @@ from datasets_mug import MUG
 import sys
 import random
 from DM.modules.video_flow_diffusion_model import FlowDiffusion
-from DM.modules.dataset import CustomVideoDataset 
+from utils.dataset import CustomVideoDataset 
 from torch.optim.lr_scheduler import MultiStepLR
 
 start = timeit.default_timer()
