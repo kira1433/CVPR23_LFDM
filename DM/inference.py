@@ -206,7 +206,7 @@ def main():
             actual_step = int(args.start_step + cnt)
             data_time.update(timeit.default_timer() - iter_end)
 
-            real_vids, ref_imgs = batch
+            fake_vids, real_vids, ref_imgs = batch
 
             model.set_train_input(ref_img=ref_imgs, real_vid=real_vids, ref_text="")
             model.forward()
@@ -219,13 +219,13 @@ def main():
                 save_src_img = sample_img(ref_imgs)
                 for nf in range(num_frames):
                     save_tar_img = sample_img(real_vids[:, :, nf, :, :])
-                    save_real_out_img = sample_img(model.real_out_vid[:, :, nf, :, :])
                     save_real_warp_img = sample_img(model.real_warped_vid[:, :, nf, :, :])
-                    new_im = Image.new('RGB', (msk_size * 5, msk_size * 2))
+                    save_fake_img = sample_img(fake_vids[:, :, nf, :, :])
+                    new_im = Image.new('RGB', (msk_size * 2, msk_size * 2))
                     new_im.paste(Image.fromarray(save_src_img, 'RGB'), (0, 0))
                     new_im.paste(Image.fromarray(save_tar_img, 'RGB'), (0, msk_size))
-                    new_im.paste(Image.fromarray(save_real_out_img, 'RGB'), (msk_size, 0))
-                    new_im.paste(Image.fromarray(save_real_warp_img, 'RGB'), (msk_size, msk_size))
+                    new_im.paste(Image.fromarray(save_real_warp_img, 'RGB'), (msk_size, 0))
+                    new_im.paste(Image.fromarray(save_fake_img, 'RGB'), (msk_size, msk_size))
                     new_im_arr = np.array(new_im)
                     new_im_arr_list.append(new_im_arr)
                 new_vid_name = 'B' + format(args.batch_size, "04d") + '_S' + format(actual_step, "06d") \

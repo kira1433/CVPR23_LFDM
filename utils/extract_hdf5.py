@@ -22,18 +22,19 @@ def main():
     temp_videos = [] 
     folders = list(hf[f"Deepfakes"].keys())
     # folders = list(hf[f"Original"].keys())
-    temp_list = []
     temp_folders = []
     for folder in folders:
-        temp_folders.append(folder)
+        temp_folders.append(int(folder.split("_")[1]))
+        temp_list = []
         for frame in range(40):
             temp_list.append(hf[f"Deepfakes/{folder}/{frame}.jpg"][()])
         temp_videos.append(np.transpose(np.array(temp_list), (1,0, 2, 3)))
-
     folders = np.array(temp_folders)
     videos = np.array(temp_videos)
     print(videos.shape)
+    print(videos.dtype)
     print(folders.shape)
+    print(folders.dtype)
     np.save("./deepfakes_40.npy", videos)
     np.save("./deepfakes_labels.npy", folders)
 main()

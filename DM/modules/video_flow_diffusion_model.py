@@ -126,7 +126,7 @@ class FlowDiffusion(nn.Module):
             for idx in range(nf):
                 driving_region_params = self.region_predictor(self.real_vid[:, :, idx, :, :])
                 bg_params = self.bg_predictor(self.ref_img, self.real_vid[:, :, idx, :, :])
-                generated = self.generator(self.ref_img, source_region_params=source_region_params,
+                generated = self.generator(self.ref_img, self.real_vid, source_region_params=source_region_params,
                                            driving_region_params=driving_region_params, bg_params=bg_params)
                 generated.update({'source_region_params': source_region_params,
                                   'driving_region_params': driving_region_params})
