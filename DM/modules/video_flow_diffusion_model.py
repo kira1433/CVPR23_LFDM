@@ -112,7 +112,6 @@ class FlowDiffusion(nn.Module):
             self.rec_warp_loss = torch.tensor(0.0).cuda()
             self.optimizer_diff = torch.optim.Adam(self.diffusion.parameters(),
                                                    lr=lr, betas=adam_betas)
-
     def forward(self):
         # compute pseudo ground-truth flow
         b, _, nf, H, W = self.real_vid.size()

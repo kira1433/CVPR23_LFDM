@@ -7,6 +7,7 @@ import torch
 from torch.utils import data
 import numpy as np
 import torch.backends.cudnn as cudnn
+import torch.nn as nn
 import os
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import os.path as osp
@@ -22,11 +23,10 @@ from utils.dataset import CustomVideoDataset
 from torch.optim.lr_scheduler import MultiStepLR
 
 start = timeit.default_timer()
-BATCH_SIZE = 5
-MAX_EPOCH = 1
+BATCH_SIZE = 1
+MAX_EPOCH = 1000
 epoch_milestones = [800, 1000]
-root_dir = '/home/zeta/Workbenches/Diffusion/CVPR23_LFDM/mug'
-GPU = "1"
+root_dir = '/home/zeta/Workbenches/Diffusion/CVPR23_LFDM/ATTN'
 postfix = "-j-sl-vr-of-tr-rmm"
 joint = "joint" in postfix or "-j" in postfix  # allow joint training with unconditional model
 if "random" in postfix:
@@ -52,42 +52,21 @@ N_FRAMES = 40
 LEARNING_RATE = 2e-4
 RANDOM_SEED = 1234
 MEAN = (0.0, 0.0, 0.0)
-SNAPSHOT_DIR = os.path.join(root_dir, 'snapshots'+postfix)
-IMGSHOT_DIR = os.path.join(root_dir, 'imgshots'+postfix)
-VIDSHOT_DIR = os.path.join(root_dir, "vidshots"+postfix)
-SAMPLE_DIR = os.path.join(root_dir, 'sample'+postfix)
 NUM_EXAMPLES_PER_EPOCH = 465
 NUM_STEPS_PER_EPOCH = math.ceil(NUM_EXAMPLES_PER_EPOCH / float(BATCH_SIZE))
 MAX_ITER = max(NUM_EXAMPLES_PER_EPOCH * MAX_EPOCH + 1,
                NUM_STEPS_PER_EPOCH * BATCH_SIZE * MAX_EPOCH + 1)
 SAVE_MODEL_EVERY = NUM_STEPS_PER_EPOCH * (MAX_EPOCH // 4)
-SAVE_VID_EVERY = 1
+SAVE_VID_EVERY = 431
 SAMPLE_VID_EVERY = 2
 UPDATE_MODEL_EVERY = 3000
 
-os.makedirs(SNAPSHOT_DIR, exist_ok=True)
-os.makedirs(IMGSHOT_DIR, exist_ok=True)
-os.makedirs(VIDSHOT_DIR, exist_ok=True)
-os.makedirs(SAMPLE_DIR, exist_ok=True)
 
-LOG_PATH = SNAPSHOT_DIR + "/B"+format(BATCH_SIZE, "04d")+"E"+format(MAX_EPOCH, "04d")+".log"
-sys.stdout = Logger(LOG_PATH, sys.stdout)
 print(root_dir)
-print("update saved model every:", UPDATE_MODEL_EVERY)
-print("save model every:", SAVE_MODEL_EVERY)
 print("save video every:", SAVE_VID_EVERY)
-print("sample video every:", SAMPLE_VID_EVERY)
-print(postfix)
 print("RESTORE_FROM", RESTORE_FROM)
-print("num examples per epoch:", NUM_EXAMPLES_PER_EPOCH)
 print("max epoch:", MAX_EPOCH)
 print("image size, num frames:", INPUT_SIZE, N_FRAMES)
-print("epoch milestones:", epoch_milestones)
-print("split train test:", split_train_test)
-print("frame sampling:", frame_sampling)
-print("only use flow loss:", only_use_flow)
-print("null_cond_prob:", null_cond_prob)
-print("use residual flow:", use_residual_flow)
 
 
 def get_arguments():
@@ -100,13 +79,9 @@ def get_arguments():
     parser.add_argument("--fine-tune", default=False)
     parser.add_argument("--set-start", default=False)
     parser.add_argument("--start-step", default=0, type=int)
-    parser.add_argument("--img-dir", type=str, default=IMGSHOT_DIR,
-                        help="Where to save images of the model.")
     parser.add_argument("--num-workers", default=8)
     parser.add_argument("--final-step", type=int, default=int(NUM_STEPS_PER_EPOCH * MAX_EPOCH),
                         help="Number of training steps.")
-    parser.add_argument("--gpu", default=GPU,
-                        help="choose gpu device.")
     parser.add_argument('--print-freq', '-p', default=10, type=int,
                         metavar='N', help='print frequency')
     parser.add_argument('--save-img-freq', default=100, type=int,
@@ -126,8 +101,6 @@ def get_arguments():
     parser.add_argument("--save-pred-every", type=int, default=SAVE_MODEL_EVERY,
                         help="Save checkpoint every often.")
     parser.add_argument("--update-pred-every", type=int, default=UPDATE_MODEL_EVERY)
-    parser.add_argument("--snapshot-dir", type=str, default=SNAPSHOT_DIR,
-                        help="Where to save snapshots of the model.")
     parser.add_argument("--fp16", default=False)
     return parser.parse_args()
 
@@ -144,11 +117,61 @@ def sample_img(rec_img_batch, idx=0):
     return np.array(rec_img, np.uint8)
 
 
+class TransformerEncoderSA(nn.Module):
+    def __init__(self,device , num_channels: int = 1, num_heads: int = 1):
+        """A block of transformer encoder with multi-head self-attention from vision transformers paper,
+        https://arxiv.org/pdf/2010.11929.pdf.
+        """
+        super(TransformerEncoderSA, self).__init__()
+        self.num_channels = num_channels
+        self.device = device
+        # Initialize the multi-head attention module with identity weights
+        self.mha = nn.MultiheadAttention(
+            embed_dim=num_channels, num_heads=num_heads, batch_first=True, bias=False
+        )
+        self.mha.in_proj_weight.data.fill_(0.0)  # Set input projections to zero
+        self.mha.out_proj.weight.data.fill_(0.0)  # Set output projection to zero
+
+        # Initialize the layer normalization with scaling factor 1 and bias 0
+        self.ln = nn.LayerNorm([num_channels], elementwise_affine=True)
+        self.ln.weight.data.fill_(1.0)
+
+        # Initialize the feed-forward network as an identity function
+        self.ff_self = nn.Sequential(
+            nn.LayerNorm([num_channels], elementwise_affine=True),
+            nn.Linear(in_features=num_channels, out_features=num_channels, bias=False),
+            nn.LayerNorm([num_channels], elementwise_affine=True),
+            nn.Linear(in_features=num_channels, out_features=num_channels, bias=False),
+        )
+        self.ff_self[0].weight.data.fill_(0.0)
+        self.ff_self[2].weight.data.fill_(0.0)
+        self.ff_self[1].weight.data.fill_(0.0)
+        self.ff_self[3].weight.data.fill_(0.0)
+
+    def forward(self, x: torch.Tensor , y: torch.Tensor) -> torch.Tensor:
+        """Self attention.
+
+        Input feature map [4, 128, 32, 32], flattened to [4, 128, 32 x 32]. Which is reshaped to per pixel
+        feature map order, [4, 1024, 128].
+
+        Attention output is same shape as input feature map to multihead attention module which are added element wise.
+        Before returning attention output is converted back input feature map x shape. Opposite of feature map to
+        mha input is done which gives output [4, 128, 32, 32].
+        """
+        x = x.view(-1, self.num_channels).to(self.device)
+        y = y.view(-1, self.num_channels).to(self.device)
+        x_ln = self.ln(x)
+        y_ln = self.ln(y)
+        attention_value, _ = self.mha(query=x_ln, key=y_ln, value=y_ln)
+        attention_value = attention_value + x
+        attention_value
+        attention_value = self.ff_self(attention_value) + attention_value
+        return attention_value.view(-1)
+
+
 def main():
     """Create the model and start the training."""
     print("----------------------------------------------------------------------------")
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-
     cudnn.enabled = True
     cudnn.benchmark = True
     setup_seed(args.random_seed)
@@ -165,11 +188,21 @@ def main():
                           pretrained_pth=AE_RESTORE_FROM)
     model.cuda()
 
+
+    lr=1e-4
+    adam_betas=(0.9, 0.99)
+    attention_fake = TransformerEncoderSA("cuda:1")
+    attention_fake.to("cuda:1")
+    attention_fake.optim = torch.optim.Adam(attention_fake.parameters(),
+                                                   lr=lr, betas=adam_betas)
+    attention_real = TransformerEncoderSA("cuda:2")
+    attention_real.to("cuda:2")
+    attention_real.optim = torch.optim.Adam(attention_real.parameters(),
+                                                   lr=lr, betas=adam_betas)
+
     # Not set model to be train mode! Because pretrained flow autoenc need to be eval (BatchNorm)
 
-    if args.fine_tune:
-        pass
-    elif args.restore_from:
+    if args.restore_from:
         if os.path.isfile(args.restore_from):
             print("=> loading checkpoint '{}'".format(args.restore_from))
             checkpoint = torch.load(args.restore_from)
@@ -192,26 +225,52 @@ def main():
                                   shuffle=True, num_workers=args.num_workers,
                                   pin_memory=True)
     print("Data Loaded!")
-    data_time = AverageMeter()
-
-    cnt = 0
-    actual_step = args.start_step
-    start_epoch = int(math.ceil((args.start_step * args.batch_size)/NUM_EXAMPLES_PER_EPOCH))
-    epoch_cnt = start_epoch
-
-    while actual_step < args.final_step:
-        iter_end = timeit.default_timer()
+    actual_step = 0
+    for epoch_cnt in range(MAX_EPOCH):
+        epoch_loss = 0
+        os.makedirs(os.path.join(root_dir, "EP" + format(epoch_cnt, "03d")))
         for i_iter, batch in enumerate(dataloader):
-            print("iter:", i_iter, "actual_step:", actual_step, "epoch:", epoch_cnt)
-            actual_step = int(args.start_step + cnt)
-            data_time.update(timeit.default_timer() - iter_end)
+            print("epoch:", epoch_cnt, "iter:", i_iter)
 
             fake_vids, real_vids, ref_imgs = batch
+            fake_vids = fake_vids.cuda().requires_grad_()
+            real_vids = real_vids.cuda().requires_grad_()
+            ref_imgs = ref_imgs.cuda().requires_grad_()
 
+            # ONE ATTENTION HERE between fake_vids, real_vids, ref_imgs 
+
+            x, y, z =  ref_imgs, fake_vids[:,:,0,:,:], real_vids[:,:,0,:,:]
+            x, y, z = x.flatten(1), y.flatten(1), z.flatten(1)
+            x = x.to("cuda:1")
+            x = y.to("cuda:1")
+            x = attention_fake(x, y)
+            x = x.to("cuda:2")
+            z = z.to("cuda:2")
+            x = attention_real(x, z)            
+
+            ref_imgs = x.view(BATCH_SIZE,3,128,128)
             model.set_train_input(ref_img=ref_imgs, real_vid=real_vids, ref_text="")
             model.forward()
             
-            if actual_step % args.save_vid_freq == 0 and cnt != 0:
+            for params in model.parameters():
+                params.requires_grad = True
+            for params in attention_fake.parameters():
+                params.requires_grad = True
+            for params in attention_real.parameters():
+                params.requires_grad = True
+
+            fake_vids = fake_vids.cuda()
+            model.real_out_vid = model.real_out_vid.cuda()
+            loss = torch.nn.functional.smooth_l1_loss(model.real_out_vid, fake_vids)
+            attention_fake.optim.zero_grad()
+            attention_real.optim.zero_grad()
+            loss.backward()
+            print("loss = ", loss.item())
+            epoch_loss += loss.item()
+            attention_fake.optim.step()
+            attention_real.optim.step()
+
+            if actual_step % args.save_vid_freq == 0:
                 print("saving video...")
                 num_frames = real_vids.size(2)
                 msk_size = ref_imgs.shape[-1]
@@ -220,46 +279,21 @@ def main():
                 for nf in range(num_frames):
                     save_tar_img = sample_img(real_vids[:, :, nf, :, :])
                     save_real_warp_img = sample_img(model.real_warped_vid[:, :, nf, :, :])
+                    save_real_out_img = sample_img(model.real_out_vid[:, :, nf, :, :])
                     save_fake_img = sample_img(fake_vids[:, :, nf, :, :])
-                    new_im = Image.new('RGB', (msk_size * 2, msk_size * 2))
+                    new_im = Image.new('RGB', (msk_size * 5, msk_size))
                     new_im.paste(Image.fromarray(save_src_img, 'RGB'), (0, 0))
-                    new_im.paste(Image.fromarray(save_tar_img, 'RGB'), (0, msk_size))
-                    new_im.paste(Image.fromarray(save_real_warp_img, 'RGB'), (msk_size, 0))
-                    new_im.paste(Image.fromarray(save_fake_img, 'RGB'), (msk_size, msk_size))
+                    new_im.paste(Image.fromarray(save_tar_img, 'RGB'), (msk_size,0))
+                    new_im.paste(Image.fromarray(save_real_warp_img, 'RGB'), (2*msk_size, 0))
+                    new_im.paste(Image.fromarray(save_real_out_img, 'RGB'), (3*msk_size, 0))
+                    new_im.paste(Image.fromarray(save_fake_img, 'RGB'), (4*msk_size, 0))
                     new_im_arr = np.array(new_im)
                     new_im_arr_list.append(new_im_arr)
-                new_vid_name = 'B' + format(args.batch_size, "04d") + '_S' + format(actual_step, "06d") \
-                                + "_%d.gif" % 1
-                new_vid_file = os.path.join(VIDSHOT_DIR, new_vid_name)
+                new_vid_name = 'IT' + format(i_iter, "03d") + ".gif"
+                new_vid_file = os.path.join(root_dir, "EP" + format(epoch_cnt, "03d"), new_vid_name)
                 imageio.mimsave(new_vid_file, new_im_arr_list)
-
-            if actual_step >= args.final_step:
-                break
-
-            cnt += 1
-
-    end = timeit.default_timer()
-    print(end - start, 'seconds')
-
-
-class AverageMeter(object):
-    """Computes and stores the average and current value"""
-
-    def __init__(self):
-        self.reset()
-
-    def reset(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
-
-    def update(self, val, n=1):
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
-
+            actual_step+=1
+        print(f"Epoch {epoch_cnt} Loss: {epoch_loss}")
 
 def setup_seed(seed):
     torch.manual_seed(seed)
