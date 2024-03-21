@@ -228,7 +228,6 @@ def main():
     actual_step = 0
     for epoch_cnt in range(MAX_EPOCH):
         epoch_loss = 0
-        os.makedirs(os.path.join(root_dir, "EP" + format(epoch_cnt, "03d")))
         for i_iter, batch in enumerate(dataloader):
             print("epoch:", epoch_cnt, "iter:", i_iter)
 
@@ -289,8 +288,8 @@ def main():
                     new_im.paste(Image.fromarray(save_fake_img, 'RGB'), (4*msk_size, 0))
                     new_im_arr = np.array(new_im)
                     new_im_arr_list.append(new_im_arr)
-                new_vid_name = 'IT' + format(i_iter, "03d") + ".gif"
-                new_vid_file = os.path.join(root_dir, "EP" + format(epoch_cnt, "03d"), new_vid_name)
+                new_vid_name = 'AS' + format(actual_step, "06d") + ".gif"
+                new_vid_file = os.path.join(root_dir, new_vid_name)
                 imageio.mimsave(new_vid_file, new_im_arr_list)
             actual_step+=1
         print(f"Epoch {epoch_cnt} Loss: {epoch_loss}")
