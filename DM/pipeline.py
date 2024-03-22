@@ -20,7 +20,7 @@ from utils.dataset import DeepfakesDataset, FaceShifterDataset, FaceSwapDataset,
 
 start = timeit.default_timer()
 BATCH_SIZE = 1
-MAX_EPOCH = 15
+MAX_EPOCH = 5
 epoch_milestones = [800, 1000]
 root_dir = '/home/zeta/Workbenches/Diffusion/CVPR23_LFDM/ATTN'
 postfix = "-j-sl-vr-of-tr-rmm"
@@ -165,6 +165,7 @@ def main():
     os.makedirs(root_dir, exist_ok=True)
 
     device = "cuda:" + str(args.gpu)
+    device_secondary = "cuda:" + str(args.gpu+1)
     print("max epoch:", MAX_EPOCH)
     print("image size, num frames:", INPUT_SIZE, N_FRAMES)
     print("----------------------------------------------------------------------------")
@@ -190,6 +191,11 @@ def main():
     attention_real = TransformerEncoderSA(device)
     attention_real.to(device)
     attention_real.optim = torch.optim.Adam(attention_real.parameters(),
+                                                   lr=lr, betas=adam_betas)
+    
+    attention_fake = TransformerEncoderSA(device_secondary)
+    attention_fake.to(device_secondary)
+    attention_fake.optim = torch.optim.Adam(attention_fake.parameters(),
                                                    lr=lr, betas=adam_betas)
 
     # Not set model to be train mode! Because pretrained flow autoenc need to be eval (BatchNorm)
@@ -236,18 +242,22 @@ def main():
             ref_imgs = ref_imgs.cuda().requires_grad_()
             img_for_save = ref_imgs.clone()
 
-            x, y =  ref_imgs, fake_vids[:,:,0,:,:]
-            x, y = x.flatten(1), y.flatten(1)
-
+            x, y, z =  ref_imgs, fake_vids[:,:,0,:,:], real_vids[:,:,0,:,:]
+            x, y, z = x.flatten(1), y.flatten(1), z.flatten(1)
+            x = x.to(device_secondary)
+            x = y.to(device_secondary)
+            x = attention_fake(x, y)
             x = x.to(device)
-            y = y.to(device)
-            x = attention_real(x, y)            
+            z = z.to(device)
+            x = attention_real(x, z)         
 
             ref_imgs = x.view(BATCH_SIZE,3,128,128)
             model.set_train_input(ref_imgs,fake_vids,"")
             model.forward()
             
             for params in model.parameters():
+                params.requires_grad = True
+            for params in attention_fake.parameters():
                 params.requires_grad = True
             for params in attention_real.parameters():
                 params.requires_grad = True
@@ -256,10 +266,12 @@ def main():
             model.real_out_vid = model.real_out_vid.cuda()
             loss = torch.nn.functional.smooth_l1_loss(model.real_warped_vid, fake_vids)
             attention_real.optim.zero_grad()
+            attention_fake.optim.zero_grad()
             loss.backward()
             print("loss = ", loss.item())
             epoch_loss += loss.item()
             attention_real.optim.step()
+            attention_fake.optim.step()
             
         print(f"Epoch-{epoch_cnt} Loss: {epoch_loss}")
 
