@@ -152,7 +152,6 @@ class TransformerEncoderSA(nn.Module):
         y_ln = self.ln(y)
         attention_value, _ = self.mha(query=x_ln, key=y_ln, value=y_ln)
         attention_value = attention_value + x
-        attention_value
         attention_value = self.ff_self(attention_value) + attention_value
         return attention_value.view(-1)
 
@@ -286,9 +285,12 @@ def main():
 
         x, y, z =  ref_imgs, fake_vids[:,:,0,:,:], real_vids[:,:,0,:,:]
         x, y, z = x.flatten(1), y.flatten(1), z.flatten(1)
+        x = x.to(device_secondary)
+        x = y.to(device_secondary)
+        x = attention_fake(x, y)
         x = x.to(device)
         z = z.to(device)
-        x = attention_real(x, z)            
+        x = attention_real(x, z)             
 
         ref_imgs = x.view(BATCH_SIZE,3,128,128)
         model.set_train_input(ref_imgs,fake_vids,"")
@@ -331,4 +333,3 @@ def setup_seed(seed):
 
 if __name__ == '__main__':
     main()
-
