@@ -4,24 +4,7 @@ from PIL import Image
 import imageio
 import cv2
 
-# data = np.load("FFS/originals_40.npy")
-# images = np.zeros((1000, 3, 128, 128))
-# for i in range(1000):
-#     for j in range(3):
-#         images[i, j] = data[i, j, 0]
-# print(images.shape)
-# np.save("FFS/originals_images.npy", images)
-
-#resize to 128x128
-# def img_zoom():
-    # np.save("FFS/originals_40.npy", videos)
-    # videos = np.zeros((999, 3, 40, 128, 128))
-    # for i in range(999):
-    #     for j in range(3):
-    #         for k in range(40):
-    #             videos[i, j, k] = zoom(data[i, j, k], (128/160, 128/160), order=1)
-
-    # np.save("FFS/deepfakes_40.npy", videos)
+data = np.load("FFS/originals_40.npy")
 
 
 def sample_img(rec_img_batch):
@@ -41,3 +24,8 @@ def save_gif(data,new_vid_file = 'test.gif'):
         new_im_arr = np.array(new_im)
         new_im_arr_list.append(new_im_arr)
     imageio.mimsave(new_vid_file, new_im_arr_list)
+
+new_im = Image.fromarray(sample_img(data[0,:,0]))
+
+for i in range(1000):
+    save_gif(data[i],str(i) + ".gif")

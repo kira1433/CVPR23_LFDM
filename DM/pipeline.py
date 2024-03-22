@@ -10,21 +10,17 @@ import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import os
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-import os.path as osp
 import timeit
 import math
 from PIL import Image
-from misc import Logger, grid2fig, conf2fig
-from datasets_mug import MUG
 
 import random
 from DM.modules.video_flow_diffusion_model import FlowDiffusion
-from utils.dataset import CustomVideoDataset 
-from torch.optim.lr_scheduler import MultiStepLR
+from utils.dataset import DeepfakesDataset, FaceShifterDataset, FaceSwapDataset, NeuralTexturesDataset, Face2FaceDataset
 
 start = timeit.default_timer()
 BATCH_SIZE = 1
-MAX_EPOCH = 1000
+MAX_EPOCH = 15
 epoch_milestones = [800, 1000]
 root_dir = '/home/zeta/Workbenches/Diffusion/CVPR23_LFDM/ATTN'
 postfix = "-j-sl-vr-of-tr-rmm"
@@ -57,17 +53,8 @@ NUM_STEPS_PER_EPOCH = math.ceil(NUM_EXAMPLES_PER_EPOCH / float(BATCH_SIZE))
 MAX_ITER = max(NUM_EXAMPLES_PER_EPOCH * MAX_EPOCH + 1,
                NUM_STEPS_PER_EPOCH * BATCH_SIZE * MAX_EPOCH + 1)
 SAVE_MODEL_EVERY = NUM_STEPS_PER_EPOCH * (MAX_EPOCH // 4)
-SAVE_VID_EVERY = 431
 SAMPLE_VID_EVERY = 2
 UPDATE_MODEL_EVERY = 3000
-
-
-print(root_dir)
-print("save video every:", SAVE_VID_EVERY)
-print("RESTORE_FROM", RESTORE_FROM)
-print("max epoch:", MAX_EPOCH)
-print("image size, num frames:", INPUT_SIZE, N_FRAMES)
-
 
 def get_arguments():
     """Parse all the arguments provided from the CLI.
@@ -76,6 +63,8 @@ def get_arguments():
       A list of parsed arguments.
     """
     parser = argparse.ArgumentParser(description="Flow Diffusion")
+    parser.add_argument("--type", default=0, type=int)
+    parser.add_argument("--gpu", default=0, type=int)
     parser.add_argument("--fine-tune", default=False)
     parser.add_argument("--set-start", default=False)
     parser.add_argument("--start-step", default=0, type=int)
@@ -86,7 +75,6 @@ def get_arguments():
                         metavar='N', help='print frequency')
     parser.add_argument('--save-img-freq', default=100, type=int,
                         metavar='N', help='save image frequency')
-    parser.add_argument('--save-vid-freq', default=SAVE_VID_EVERY, type=int)
     parser.add_argument('--sample-vid-freq', default=SAMPLE_VID_EVERY, type=int)
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE,
                         help="Number of images sent to the network in one step.")
@@ -169,8 +157,16 @@ class TransformerEncoderSA(nn.Module):
         return attention_value.view(-1)
 
 
-def main():
+def main(): 
     """Create the model and start the training."""
+        
+    root_dir = '/home/zeta/Workbenches/Diffusion/CVPR23_LFDM/ATTN_'+ str(args.type)
+    print(root_dir)
+    os.makedirs(root_dir, exist_ok=True)
+
+    device = "cuda:" + str(args.gpu)
+    print("max epoch:", MAX_EPOCH)
+    print("image size, num frames:", INPUT_SIZE, N_FRAMES)
     print("----------------------------------------------------------------------------")
     cudnn.enabled = True
     cudnn.benchmark = True
@@ -188,15 +184,11 @@ def main():
                           pretrained_pth=AE_RESTORE_FROM)
     model.cuda()
 
-
     lr=1e-4
     adam_betas=(0.9, 0.99)
-    attention_fake = TransformerEncoderSA("cuda:1")
-    attention_fake.to("cuda:1")
-    attention_fake.optim = torch.optim.Adam(attention_fake.parameters(),
-                                                   lr=lr, betas=adam_betas)
-    attention_real = TransformerEncoderSA("cuda:2")
-    attention_real.to("cuda:2")
+
+    attention_real = TransformerEncoderSA(device)
+    attention_real.to(device)
     attention_real.optim = torch.optim.Adam(attention_real.parameters(),
                                                    lr=lr, betas=adam_betas)
 
@@ -219,80 +211,103 @@ def main():
         print("NO checkpoint found!")
 
     setup_seed(args.random_seed)
-    dataset = CustomVideoDataset()
+    
+    datasets = {
+        0 : DeepfakesDataset,
+        1 : FaceShifterDataset,
+        2 : FaceSwapDataset,
+        3 : NeuralTexturesDataset,
+        4 : Face2FaceDataset
+    }
+    dataset = datasets[args.type]()
     dataloader = data.DataLoader(dataset,
                                   batch_size=args.batch_size,
-                                  shuffle=True, num_workers=args.num_workers,
+                                  shuffle=False, num_workers=args.num_workers,
                                   pin_memory=True)
     print("Data Loaded!")
-    actual_step = 0
     for epoch_cnt in range(MAX_EPOCH):
         epoch_loss = 0
         for i_iter, batch in enumerate(dataloader):
-            print("epoch:", epoch_cnt, "iter:", i_iter)
+            print("Epoch:", epoch_cnt, "iter:", i_iter)
 
             fake_vids, real_vids, ref_imgs = batch
             fake_vids = fake_vids.cuda().requires_grad_()
             real_vids = real_vids.cuda().requires_grad_()
             ref_imgs = ref_imgs.cuda().requires_grad_()
+            img_for_save = ref_imgs.clone()
 
-            # ONE ATTENTION HERE between fake_vids, real_vids, ref_imgs 
+            x, y =  ref_imgs, fake_vids[:,:,0,:,:]
+            x, y = x.flatten(1), y.flatten(1)
 
-            x, y, z =  ref_imgs, fake_vids[:,:,0,:,:], real_vids[:,:,0,:,:]
-            x, y, z = x.flatten(1), y.flatten(1), z.flatten(1)
-            x = x.to("cuda:1")
-            x = y.to("cuda:1")
-            x = attention_fake(x, y)
-            x = x.to("cuda:2")
-            z = z.to("cuda:2")
-            x = attention_real(x, z)            
+            x = x.to(device)
+            y = y.to(device)
+            x = attention_real(x, y)            
 
             ref_imgs = x.view(BATCH_SIZE,3,128,128)
-            model.set_train_input(ref_img=ref_imgs, real_vid=real_vids, ref_text="")
+            model.set_train_input(ref_imgs,fake_vids,"")
             model.forward()
             
             for params in model.parameters():
-                params.requires_grad = True
-            for params in attention_fake.parameters():
                 params.requires_grad = True
             for params in attention_real.parameters():
                 params.requires_grad = True
 
             fake_vids = fake_vids.cuda()
             model.real_out_vid = model.real_out_vid.cuda()
-            loss = torch.nn.functional.smooth_l1_loss(model.real_out_vid, fake_vids)
-            attention_fake.optim.zero_grad()
+            loss = torch.nn.functional.smooth_l1_loss(model.real_warped_vid, fake_vids)
             attention_real.optim.zero_grad()
             loss.backward()
             print("loss = ", loss.item())
             epoch_loss += loss.item()
-            attention_fake.optim.step()
             attention_real.optim.step()
+            
+        print(f"Epoch-{epoch_cnt} Loss: {epoch_loss}")
 
-            if actual_step % args.save_vid_freq == 0:
-                print("saving video...")
-                num_frames = real_vids.size(2)
-                msk_size = ref_imgs.shape[-1]
-                new_im_arr_list = []
-                save_src_img = sample_img(ref_imgs)
-                for nf in range(num_frames):
-                    save_tar_img = sample_img(real_vids[:, :, nf, :, :])
-                    save_real_warp_img = sample_img(model.real_warped_vid[:, :, nf, :, :])
-                    save_real_out_img = sample_img(model.real_out_vid[:, :, nf, :, :])
-                    save_fake_img = sample_img(fake_vids[:, :, nf, :, :])
-                    new_im = Image.new('RGB', (msk_size * 5, msk_size))
-                    new_im.paste(Image.fromarray(save_src_img, 'RGB'), (0, 0))
-                    new_im.paste(Image.fromarray(save_tar_img, 'RGB'), (msk_size,0))
-                    new_im.paste(Image.fromarray(save_real_warp_img, 'RGB'), (2*msk_size, 0))
-                    new_im.paste(Image.fromarray(save_real_out_img, 'RGB'), (3*msk_size, 0))
-                    new_im.paste(Image.fromarray(save_fake_img, 'RGB'), (4*msk_size, 0))
-                    new_im_arr = np.array(new_im)
-                    new_im_arr_list.append(new_im_arr)
-                new_vid_name = 'AS' + format(actual_step, "06d") + ".gif"
-                new_vid_file = os.path.join(root_dir, new_vid_name)
-                imageio.mimsave(new_vid_file, new_im_arr_list)
-            actual_step+=1
-        print(f"Epoch {epoch_cnt} Loss: {epoch_loss}")
+    print("Training Done!")
+    print("----------------------------------------------------------------------------")
+
+    for i_iter, batch in enumerate(dataloader):
+        print("Testing", "iter:", i_iter)
+
+        fake_vids, real_vids, ref_imgs = batch
+        img_for_save = ref_imgs.clone()
+
+        x, y, z =  ref_imgs, fake_vids[:,:,0,:,:], real_vids[:,:,0,:,:]
+        x, y, z = x.flatten(1), y.flatten(1), z.flatten(1)
+        x = x.to(device)
+        z = z.to(device)
+        x = attention_real(x, z)            
+
+        ref_imgs = x.view(BATCH_SIZE,3,128,128)
+        model.set_train_input(ref_imgs,fake_vids,"")
+        model.forward()
+        
+        print("saving video...")
+        num_frames = real_vids.size(2)
+        msk_size = ref_imgs.shape[-1]
+        new_im_arr_list = []
+        save_src_img = sample_img(img_for_save)
+        for nf in range(num_frames):
+            save_tar_img = sample_img(real_vids[:, :, nf, :, :])
+            save_real_warp_img = sample_img(model.real_warped_vid[:, :, nf, :, :])
+            save_real_out_img = sample_img(model.real_out_vid[:, :, nf, :, :])
+            save_fake_img = sample_img(fake_vids[:, :, nf, :, :])
+            new_im = Image.new('RGB', (msk_size * 5, msk_size))
+            new_im.paste(Image.fromarray(save_src_img, 'RGB'), (0, 0))
+            new_im.paste(Image.fromarray(save_tar_img, 'RGB'), (msk_size,0))
+            new_im.paste(Image.fromarray(save_real_out_img, 'RGB'), (2*msk_size, 0))
+            new_im.paste(Image.fromarray(save_real_warp_img, 'RGB'), (3*msk_size, 0))
+            new_im.paste(Image.fromarray(save_fake_img, 'RGB'), (4*msk_size, 0))
+            new_im_arr = np.array(new_im)
+            new_im_arr_list.append(new_im_arr)
+        new_vid_name = 'AS' + format(i_iter, "03d") + ".gif"
+        new_vid_file = os.path.join(root_dir, new_vid_name)
+        imageio.mimsave(new_vid_file, new_im_arr_list)
+
+    print("Testing Done!")
+    print("----------------------------------------------------------------------------")
+
+    torch.save({'attention_real': attention_real.state_dict()}, os.path.join(root_dir, 'attention_real.pth'))
 
 def setup_seed(seed):
     torch.manual_seed(seed)
