@@ -6,6 +6,19 @@ from torchvision import transforms
 import imageio
 from PIL import Image
 
+class ExpressionDataset(Dataset):
+    def __init__(self):
+        super(ExpressionDataset, self).__init__()
+        self.originals = np.load("/home/zeta/Workbenches/Diffusion/FFS/originals_40.npy").astype(np.dtype('float32'))
+        self.labels = ["Suprise","Anger","Disgust","Happiness"]
+
+    def __len__(self) -> int:
+        return len(self.labels)
+
+    def __getitem__(self, idx: int) -> torch.Tensor:
+        return self.originals[200] , self.labels[idx]
+
+
 class DeepfakesDataset(Dataset):
     def __init__(self):
         super(DeepfakesDataset, self).__init__()

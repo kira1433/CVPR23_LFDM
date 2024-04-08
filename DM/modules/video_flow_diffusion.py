@@ -764,7 +764,7 @@ class GaussianDiffusion(nn.Module):
         device = next(self.denoise_fn.parameters()).device
 
         if is_list_str(cond):
-            cond = bert_embed(tokenize(cond), return_cls_repr=self.text_use_bert_cls).to(device)
+            cond = bert_embed(cond, return_cls_repr=self.text_use_bert_cls).to(device)
 
         batch_size = cond.shape[0] if exists(cond) else batch_size
         image_size = self.image_size

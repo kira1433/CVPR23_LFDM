@@ -125,7 +125,7 @@ class FlowDiffusion(nn.Module):
             for idx in range(nf):
                 driving_region_params = self.region_predictor(self.real_vid[:, :, idx, :, :])
                 bg_params = self.bg_predictor(self.ref_img, self.real_vid[:, :, idx, :, :])
-                generated = self.generator(self.ref_img, self.real_vid, source_region_params=source_region_params,
+                generated = self.generator(self.ref_img, source_region_params=source_region_params,
                                            driving_region_params=driving_region_params, bg_params=bg_params)
                 generated.update({'source_region_params': source_region_params,
                                   'driving_region_params': driving_region_params})
@@ -140,7 +140,7 @@ class FlowDiffusion(nn.Module):
         self.real_warped_vid = torch.stack(real_warped_img_list, dim=2)
         # reference images are the same for different time steps, just pick the final one
         self.ref_img_fea = generated["bottle_neck_feat"].clone().detach()
-
+        print("DIFFUSION FORWARD")
         if self.is_train:
             if self.use_residual_flow:
                 h, w, = H//4, W//4

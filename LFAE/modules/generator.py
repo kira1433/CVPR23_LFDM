@@ -78,7 +78,7 @@ class Generator(nn.Module):
             out = input_previous if input_previous is not None else input_skip
         return out
 
-    def forward(self, source_image, source_video, driving_region_params, source_region_params, bg_params=None):
+    def forward(self, source_image, driving_region_params, source_region_params, bg_params=None):
         out = self.first(source_image)
         skips = [out]
         for i in range(len(self.down_blocks)):
